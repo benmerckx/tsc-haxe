@@ -991,7 +991,16 @@ class Core {
 	}
 
 	// PORT: sync.Pool → a free list (single-threaded).
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a free list per thread (go.Par.slot)
+	static final levenshteinBuffersPools:Array<Array<LevenshteinBuffers>> = [for (_ in 0...go.Par.SLOTS) []];
+	static var levenshteinBuffersPool(get, never):Array<LevenshteinBuffers>;
+
+	static inline function get_levenshteinBuffersPool()
+		return levenshteinBuffersPools[go.Par.slot];
+	#else
 	static final levenshteinBuffersPool:Array<LevenshteinBuffers> = [];
+	#end
 
 	static function levenshteinBuffersPoolGet():LevenshteinBuffers {
 		final b = levenshteinBuffersPool.pop();

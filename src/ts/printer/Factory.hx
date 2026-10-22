@@ -28,7 +28,7 @@ class NodeFactory extends ts.ast.Ast.NodeFactory {
 	}
 
 	function newGeneratedIdentifier(kind:GeneratedIdentifierFlags, text:std.String, node:Node, options:AutoGenerateOptions):IdentifierNode {
-		final id:AutoGenerateId = ++Printer.nextAutoGenerateId;
+		final id:AutoGenerateId = Printer.NextAutoGenerateId();
 
 		if (text.length == 0) {
 			if (node == null) {
@@ -106,7 +106,7 @@ class NodeFactory extends ts.ast.Ast.NodeFactory {
 	}
 
 	function newGeneratedPrivateIdentifier(kind:GeneratedIdentifierFlags, text:std.String, node:Node, options:AutoGenerateOptions):PrivateIdentifierNode {
-		final id:AutoGenerateId = ++Printer.nextAutoGenerateId;
+		final id:AutoGenerateId = Printer.NextAutoGenerateId();
 
 		if (text.length == 0) {
 			if (node == null) {

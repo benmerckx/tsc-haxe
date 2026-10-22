@@ -92,3 +92,58 @@ runs, wall time and peak RSS; Intel Xeon E-2356G @ 3.20 GHz (6 cores / 12 thread
 | tsc7 native `--singleThreaded` | 1.70 s (1.69), 422 MB | 1.66 s (1.64), 402 MB | 2.73 s (2.57), 539 MB |
 | tsgo-wasm | 12.72 s (12.29), 686 MB | 12.14 s (12.02), 674 MB | 17.29 s (16.53), 866 MB |
 | hxmc wasm32-wasi (21.9 MB, hxmc `tsc-perf`) | 3.49 s (3.42), 792 MB | 3.38 s (3.32), 791 MB | 4.92 s (4.59), 875 MB |
+
+## Threads (-D tshx-parallel)
+
+`tools/targets.sh` target `hxmc-par`: the `hxmc` build with `-D tshx-parallel`, which runs Go's parallel work
+groups on threads (`go.Par`: a pool of `TSHX_THREADS` threads, default 4, Go's default number of checkers;
+`ts.core.ParallelWorkGroup`): file loading and parsing, binding, the checkers (one task per checker, each with
+its files, as in Go), checker creation and emit (a task per file, holding its file's checker: Go locks the
+checker in each EmitResolver call, which this port dropped). Without the define nothing changes.
+
+What the threads share is made safe as Go makes it: node, symbol and checker ids (Go's atomics, here a
+lock), `LinkStore`'s lists on the keys (prepended under a lock), `SourceFile`'s lazy fields (name table,
+position map, bind, tokens, lazy JSDoc, data: a mutex per file), the program's `sync.Once`s, `SyncMap`, the
+files parser's per-path mutex and `LoadOrStore`, the loader's counters and lib caches, `tsc -b`'s parse
+cache (Go's per-entry mutex: without it a project could lose its lib files), `LimitedSemaphore` (a counting
+semaphore). The port's pools and scratch state are per thread (`go.Par.slot`: parsers, binders, KeyHashers,
+Levenshtein buffers, the module specifiers' and diagnostics' regexes, which keep their last match) or
+thread-local (`@:hxmc.threadLocal`: the sort's and `getRelationKey`'s results).
+
+Checked: the real-project gate on `hxmc-par` (every project, mode, step and stdout identical to Go), and a stress
+test of 30 ts6-compiler declaration builds, 20 full emits and 10 ts6-solution builds at 2-8 threads against
+Go's output, twice without a failure.
+
+ts6-compiler, medians (min) of 7 interleaved runs (full emit: 4), Intel Xeon E-2356G (6 cores / 12
+threads), Linux 6.1, load average 1.1-2.4; tsc7 is npm `typescript@7.0.2`:
+
+| | decl | check | full |
+|---|---|---|---|
+| tsc7 `--singleThreaded` | 1.72 s (1.71) | 1.66 s (1.65) | 2.58 s (2.56) |
+| tsc7 (multithreaded, its default) | 0.96 s (0.95) | 0.94 s (0.91) | 1.37 s (1.34) |
+| `hxmc` `--singleThreaded` | 1.76 s (1.76) | 1.71 s (1.70) | 2.54 s (2.51) |
+| `hxmc-par`, 4 threads | 1.10 s (1.08) | 1.07 s (1.06) | 1.60 s (1.58) |
+
+(`hxmc-par` before binding and checker creation ran on threads, which took decl to 1.04 s.) The check is
+bounded by one file: the checker that gets `checker.ts` (50k lines) takes about 0.85 s, the others 0.2-0.4 s,
+with 4 checkers or 8 (`TSHX_DEBUG=1` prints each checker's time); Go has the same split. tsc7 uses about
+40% more CPU time for its multithreaded run (3.4 s against 2.2 s on decl).
+
+## WasmGC (-D hxmc.wasm-gc)
+
+`tools/targets.sh` target `hxmc-wasmgc`: the wasm32-wasi build with `-D hxmc.wasm-gc` (Haxe's objects in the
+engine's collector), run by hxmc's `wasmgc.mjs` under node. There is no linear memory, so `go.Os` is
+`go.OsGc`, over `sys.FileSystem`: stat follows symbolic links either way, the mode is the file type's,
+`symlink` and `utimes` are unsupported. It needs benmerckx/hxmc#36 (array literals of more than 10000
+elements, `ObjectMap`'s 16-bit hashes spread, `FPHelper.i64ToDouble`'s low word).
+
+ts6-compiler under node v24.21.0, single runs, same machine; output identical to Go: declarations 4.1 s,
+full emit 6.0 s (67 s before hxmc#36's `ObjectMap` fix), `tsc -b` of the ts6 solution 8.6 s; tsgo-wasm
+12.4 / 16.3 / 27.0 s.
+
+Real-project gate: every output file of every project, mode and step identical to Go. The stdout of the
+`--verbose` rebuilds (ts6-solution b2/b3, native-preview b2) is not: hxmc's WasmGC host gives `stat` times in
+whole seconds (`sys.FileSystem.stat`), so inputs written in the same second tie and "is up to date because
+newest input ..." can name another file; for the same reason an input changed in the second its output was
+written could be taken as up to date. Go's are nanoseconds: an exact mtime needs a host call with
+`mtimeNs` in hxmc's `wasmgc.mjs`.

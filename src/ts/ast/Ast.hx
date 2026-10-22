@@ -1129,12 +1129,18 @@ class Ast {
 	}
 
 	public static function GetOrComputeSourceFileData<T>(file:SourceFile, key:SourceFileDataKey<T>, compute:(SourceFile) -> T):T {
+		#if tshx_parallel
+		file.syncMutex.acquire(); // PORT: hxmc (-D tshx-parallel) — dataMu and the cell's sync.Once
+		#end
 		final cell = getSourceFileDataCell(file, key);
 		// PORT: sync.Once → flag.
 		if (!cell.done) {
 			cell.done = true;
 			cell.value = compute(file);
 		}
+		#if tshx_parallel
+		file.syncMutex.release();
+		#end
 		return cell.value;
 	}
 
@@ -3107,15 +3113,30 @@ class Ast {
 	// PORT: atomic.Uint64 → plain Int (single-threaded; ids fit in 32 bits).
 	static var nextNodeId:Int = 0;
 	static var nextSymbolId:Int = 0;
+	#if tshx_parallel
+	static final idMutex = new sys.thread.Mutex();
+	#end
 
 	public static function GetNodeId(node:Node):NodeId {
 		var id = node.id;
 		if (id == 0) {
 			// Worst case, we burn a few ids if we have to CAS.
+			#if tshx_parallel
+			// PORT: hxmc (-D tshx-parallel) — Add + CompareAndSwap under a lock (the id is taken once).
+			idMutex.acquire();
+			id = node.id;
+			if (id == 0) {
+				nextNodeId++;
+				id = nextNodeId;
+				node.id = id;
+			}
+			idMutex.release();
+			#else
 			// PORT: Add + CompareAndSwap → increment and store (single-threaded).
 			nextNodeId++;
 			id = nextNodeId;
 			node.id = id;
+			#end
 		}
 		return id;
 	}
@@ -3124,10 +3145,22 @@ class Ast {
 		var id = symbol.id;
 		if (id == 0) {
 			// Worst case, we burn a few ids if we have to CAS.
+			#if tshx_parallel
+			// PORT: hxmc (-D tshx-parallel) — Add + CompareAndSwap under a lock (the id is taken once).
+			idMutex.acquire();
+			id = symbol.id;
+			if (id == 0) {
+				nextSymbolId++;
+				id = nextSymbolId;
+				symbol.id = id;
+			}
+			idMutex.release();
+			#else
 			// PORT: Add + CompareAndSwap → increment and store (single-threaded).
 			nextSymbolId++;
 			id = nextSymbolId;
 			symbol.id = id;
+			#end
 		}
 		return id;
 	}
@@ -3867,7 +3900,16 @@ class Ast {
 	}
 
 	// PORT: sync.Pool → a free list (single-threaded); Get pops or creates, Put pushes.
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a free list per thread (go.Par.slot)
+	static final setParentInChildrenPools:Array<Array<(node:Node) -> Bool>> = [for (_ in 0...go.Par.SLOTS) []];
+	static var setParentInChildrenPool(get, never):Array<(node:Node) -> Bool>;
+
+	static inline function get_setParentInChildrenPool()
+		return setParentInChildrenPools[go.Par.slot];
+	#else
 	static final setParentInChildrenPool:Array<(node:Node) -> Bool> = [];
+	#end
 
 	static function newParentInChildrenSetter():(node:Node) -> Bool {
 		// Consolidate state into one allocation.
@@ -11119,6 +11161,14 @@ abstract Node(NodeDefault) from NodeDefault to NodeDefault {
 			}
 		}
 		// PORT: the RLock path of Go reads the same cache.
+		#if tshx_parallel
+		if (file.hasLazyJSDoc) {
+			file.syncMutex.acquire();
+			final r = file.jsdocCache == null ? null : file.jsdocCache.get(abstract);
+			file.syncMutex.release();
+			return r;
+		}
+		#end
 		return file.jsdocCache == null ? null : file.jsdocCache.get(abstract);
 	}
 
@@ -12414,6 +12464,11 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 
 	var jsdocCache:IdentityMap<Node, Array<Node>> = null;
 	var hasLazyJSDoc:Bool = false;
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — Go's dataMu, jsdocMu, tokenCacheMu and the Onces of the lazy
+	// fields (bind, name table, position map) as one re-entrant mutex
+	public final syncMutex = new sys.thread.Mutex();
+	#end
 
 	public var ReparsedClones:Array<Node> = null;
 	public var Pragmas:Array<Pragma> = null;
@@ -12518,6 +12573,15 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 	}
 
 	function resolveJSDoc(n:Node):Array<Node> {
+		#if tshx_parallel
+		syncMutex.acquire();
+		final r = resolveJSDocLocked(n);
+		syncMutex.release();
+		return r;
+	}
+
+	function resolveJSDocLocked(n:Node):Array<Node> {
+		#end
 		if (Ast.parseJSDocForNode == null) {
 			throw "resolveJSDoc called but parseJSDocForNode is not registered; ensure the parser package is imported";
 		}
@@ -12614,6 +12678,9 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 	// GetNameTable returns a map of all names in the file to their positions.
 	// If the name appears more than once, the value is -1.
 	public function GetNameTable():StringMap<Int> {
+		#if tshx_parallel
+		syncMutex.acquire();
+		#end
 		if (!nameTableDone) {
 			nameTableDone = true;
 			final nameTable = new StringMap<Int>();
@@ -12644,6 +12711,9 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 
 			this.nameTable = nameTable;
 		}
+		#if tshx_parallel
+		syncMutex.release();
+		#end
 		return nameTable;
 	}
 
@@ -12653,6 +12723,9 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 
 	// GetPositionMap returns the PositionMap for this source file, computing it lazily.
 	public function GetPositionMap():PositionMap {
+		#if tshx_parallel
+		syncMutex.acquire();
+		#end
 		if (!positionMapDone) {
 			positionMapDone = true;
 			if (!ContainsNonASCII) {
@@ -12663,20 +12736,38 @@ class SourceFile extends NodeDefault implements DeclarationBase implements Local
 				positionMap = Ast.ComputePositionMap(Text());
 			}
 		}
+		#if tshx_parallel
+		syncMutex.release();
+		#end
 		return positionMap;
 	}
 
 	public function BindOnce(bind:() -> Void):Void {
+		#if tshx_parallel
+		syncMutex.acquire();
+		#end
 		if (!bindOnceDone) {
 			bindOnceDone = true;
 			bind();
 			isBound = true;
 		}
+		#if tshx_parallel
+		syncMutex.release();
+		#end
 	}
 
 	// Gets a token from the file's token cache, or creates it if it does not already exist.
 	// This function should NOT be used for creating synthetic tokens that are not in the file in the first place.
 	public function GetOrCreateToken(kind:Kind, pos:Int, end:Int, parent:Node, flags:TokenFlags):TokenNode {
+		#if tshx_parallel
+		syncMutex.acquire();
+		final token = getOrCreateTokenLocked(kind, pos, end, parent, flags);
+		syncMutex.release();
+		return token;
+	}
+
+	function getOrCreateTokenLocked(kind:Kind, pos:Int, end:Int, parent:Node, flags:TokenFlags):TokenNode {
+		#end
 		final loc = Core.NewTextRange(pos, end);
 		final locKey = pos + ":" + end;
 		final byLoc = tokenCache == null ? null : tokenCache.get(parent);

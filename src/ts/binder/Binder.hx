@@ -127,7 +127,16 @@ class Binder {
 	}
 
 	// PORT: sync.Pool → a plain free list (single-threaded).
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a free list per thread (go.Par.slot)
+	static final binderPools:Array<Array<Binder>> = [for (_ in 0...go.Par.SLOTS) []];
+	static var binderPool(get, never):Array<Binder>;
+
+	static inline function get_binderPool()
+		return binderPools[go.Par.slot];
+	#else
 	static final binderPool:Array<Binder> = [];
+	#end
 
 	static function newPooledBinder():Binder {
 		final b = new Binder();

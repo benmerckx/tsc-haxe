@@ -1302,7 +1302,19 @@ class OsNative {
 	}
 
 	// realpath(3): the result path, or null with the error code in `realpathErr`.
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — per thread (go.Par.slot)
+	static final realpathErrs:Array<String> = [for (_ in 0...go.Par.SLOTS) ""];
+	public static var realpathErr(get, set):String;
+
+	static inline function get_realpathErr()
+		return realpathErrs[go.Par.slot];
+
+	static inline function set_realpathErr(v:String)
+		return realpathErrs[go.Par.slot] = v;
+	#else
 	public static var realpathErr:String = "";
+	#end
 
 	public static function realpath(path:String):Null<String> {
 		#if js

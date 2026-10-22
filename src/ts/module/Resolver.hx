@@ -1027,10 +1027,16 @@ class ResolutionState {
 		if (r.compilerOptions == r.resolver.compilerOptions) {
 			return r.resolver.getParsedPatternsForPaths();
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!r.parsedPatternsForPathsOnce) {
 			r.parsedPatternsForPathsOnce = true;
 			r.parsedPatternsForPaths = Module.TryParsePatterns(r.compilerOptions.Paths);
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return r.parsedPatternsForPaths;
 	}
 
@@ -2113,10 +2119,16 @@ class Resolver {
 	@:allow(ts.module)
 	function getParsedPatternsForPaths():ParsedPatterns {
 		final r = this;
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!r.caches.parsedPatternsForPathsOnce) {
 			r.caches.parsedPatternsForPathsOnce = true;
 			r.caches.parsedPatternsForPaths = Module.TryParsePatterns(r.compilerOptions.Paths);
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return r.caches.parsedPatternsForPaths;
 	}
 

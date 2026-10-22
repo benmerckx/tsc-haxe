@@ -86,10 +86,16 @@ class PackageJson {
 	// PORT: Go `trace func(m *diagnostics.Message, args ...any)` → args as an array. The parameter
 	// is `trace_`: a call `trace(...)` is always haxe.Log.trace in Haxe.
 	public function GetVersionPaths(trace_:Null<(m:Message, args:Array<Any>) -> Void>):VersionPaths {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!this.once) {
 			this.once = true;
 			this.computeVersionPaths();
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		if (trace_ != null) {
 			if (this.versionTraces != null) {
 				for (msg in this.versionTraces) {

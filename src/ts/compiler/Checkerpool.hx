@@ -38,7 +38,11 @@ class CheckerPool_ implements CheckerPool {
 		this.createCheckers();
 		final c = this.checkers[0];
 		// p.locks[0].Lock(); release: sync.OnceFunc(unlock)
+		#if tshx_parallel
+		return new Pair<Checker, () -> Void>(c, this.lock(0));
+		#else
 		return new Pair<Checker, () -> Void>(c, Compiler.noop);
+		#end
 	}
 
 	// getCheckerForFileNonExclusive returns the checker for the given file without locking.
@@ -53,8 +57,27 @@ class CheckerPool_ implements CheckerPool {
 		this.createCheckers();
 		final c = this.fileAssociations.get(file);
 		// idx := slices.Index(p.checkers, c); p.locks[idx].Lock()
+		#if tshx_parallel
+		return new Pair<Checker, () -> Void>(c, this.lock(this.checkers.indexOf(c)));
+		#else
 		return new Pair<Checker, () -> Void>(c, Compiler.noop);
+		#end
 	}
+
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — p.locks[idx].Lock(), and its release as sync.OnceFunc(Unlock)
+	function lock(idx:Int):() -> Void {
+		final m:sys.thread.Mutex = cast this.locks[idx];
+		m.acquire();
+		var released = false;
+		return function() {
+			if (!released) {
+				released = true;
+				m.release();
+			}
+		};
+	}
+	#end
 
 	// getCheckerNonExclusive returns the first checker without locking.
 	function getCheckerNonExclusive():Pair<Checker, () -> Void> {
@@ -67,7 +90,12 @@ class CheckerPool_ implements CheckerPool {
 			return;
 		this.createCheckersOnce = true;
 		final checkerCount = this.checkers.length;
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the checkers are created on threads, as in Go
+		final wg:WorkGroup = this.program.SingleThreaded() ? Core.NewWorkGroup(true) : new ParallelWorkGroup();
+		#else
 		final wg = Core.NewWorkGroup(this.program.SingleThreaded());
+		#end
 		for (i in 0...checkerCount) {
 			wg.Queue(function() {
 				var tracer:ts.checker.Tracer = null;
@@ -76,7 +104,11 @@ class CheckerPool_ implements CheckerPool {
 				}
 				final r = Checker.NewChecker(this.program, tracer);
 				this.checkers[i] = r.a;
+				#if tshx_parallel
+				this.locks[i] = new sys.thread.Mutex(); // PORT: hxmc (-D tshx-parallel) — the checker's mutex
+				#else
 				this.locks[i] = r.b;
+				#end
 			});
 		}
 
@@ -97,7 +129,13 @@ class CheckerPool_ implements CheckerPool {
 		for (idx in 0...this.checkers.length) {
 			final checker = this.checkers[idx];
 			wg.Queue(function() {
+				#if tshx_parallel
+				final release = this.lock(idx);
 				cb(idx, checker);
+				release();
+				#else
+				cb(idx, checker);
+				#end
 			});
 		}
 		wg.RunAndWait();
@@ -119,9 +157,18 @@ class CheckerPool_ implements CheckerPool {
 		this.createCheckers();
 
 		final checkerCount = this.checkers.length;
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the checkers run on threads, as in Go
+		final wg:WorkGroup = singleThreaded ? Core.NewWorkGroup(true) : new ParallelWorkGroup();
+		#else
 		final wg = Core.NewWorkGroup(singleThreaded);
+		#end
 		for (checkerIdx in 0...checkerCount) {
 			wg.Queue(function() {
+				#if tshx_parallel
+				final release = this.lock(checkerIdx);
+				final t0 = haxe.Timer.stamp();
+				#end
 				for (i in 0...files.length) {
 					final file = files[i];
 					final checker = this.checkers[checkerIdx];
@@ -129,6 +176,11 @@ class CheckerPool_ implements CheckerPool {
 						cb(checker, i, file);
 					}
 				}
+				#if tshx_parallel
+				if (Sys.getEnv("TSHX_DEBUG") != null)
+					Sys.stderr().writeString("checker " + checkerIdx + " on slot " + go.Par.slot + ": " + Std.int((haxe.Timer.stamp() - t0) * 1000) + " ms\n");
+				release();
+				#end
 			});
 		}
 		wg.RunAndWait();

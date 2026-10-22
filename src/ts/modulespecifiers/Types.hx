@@ -27,16 +27,25 @@ class SourceFileAdapter implements SourceFileForSpecifierGeneration {
 	}
 
 	static final cache = new IdentityMap<SourceFile, SourceFileAdapter>();
+	#if tshx_parallel
+	static final cacheMutex = new sys.thread.Mutex();
+	#end
 
 	public static function Of(file:SourceFile):SourceFileAdapter {
 		if (file == null) {
 			return null;
 		}
+		#if tshx_parallel
+		cacheMutex.acquire(); // PORT: hxmc (-D tshx-parallel)
+		#end
 		var a = cache.get(file);
 		if (a == null) {
 			a = new SourceFileAdapter(file);
 			cache.set(file, a);
 		}
+		#if tshx_parallel
+		cacheMutex.release();
+		#end
 		return a;
 	}
 

@@ -192,9 +192,16 @@ class Slices {
 
 	// Second results of choosePivot / partition (Go multiple returns). Read right after the call;
 	// choosePivot saves and restores `swaps`, so a comparator that sorts again is still safe.
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — per thread
+	@:hxmc.threadLocal static var pivotHint:Int;
+	@:hxmc.threadLocal static var wasAlreadyPartitioned:Bool;
+	@:hxmc.threadLocal static var swaps:Int;
+	#else
 	static var pivotHint = 0;
 	static var wasAlreadyPartitioned = false;
 	static var swaps = 0;
+	#end
 
 	// insertionSortCmpFunc sorts data[a:b] using insertion sort.
 	static function insertionSortCmpFunc<E>(data:Array<E>, a:Int, b:Int, cmp:(E, E) -> Int):Void {

@@ -842,6 +842,27 @@ class KeyHasher {
 
 	function new() {}
 
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a pool and a packing buffer per thread (go.Par.slot)
+	static final pools:Array<Array<KeyHasher>> = [for (_ in 0...go.Par.SLOTS) []];
+	static final packeds:Array<haxe.io.Bytes> = [for (_ in 0...go.Par.SLOTS) null];
+	static var pool(get, never):Array<KeyHasher>;
+	static var packed(get, set):haxe.io.Bytes;
+
+	static inline function get_pool()
+		return pools[go.Par.slot];
+
+	static inline function get_packed()
+		return packeds[go.Par.slot];
+
+	static inline function set_packed(b:haxe.io.Bytes)
+		return packeds[go.Par.slot] = b;
+
+	static function Get():KeyHasher {
+		final pool = pool;
+		return pool.length > 0 ? pool.pop() : new KeyHasher();
+	}
+	#else
 	static var pool:Array<KeyHasher> = null;
 	static var packed:haxe.io.Bytes = null;
 
@@ -850,6 +871,7 @@ class KeyHasher {
 			pool = [];
 		return pool.length > 0 ? pool.pop() : new KeyHasher();
 	}
+	#end
 
 	inline function WriteByte(c:Int):Void {
 		if (n == buf.length)
@@ -882,14 +904,24 @@ class KeyHasher {
 		final s = hxmc.rt.Str.make(m + 1);
 		final d = hxmc.rt.Str.chars(s);
 		final b = buf;
+		// PORT: perf — the string's hash as hxmc's StringMap computes it (FNV-1a of the units, 0 → 1), stored in
+		// the string while its units are written: the key's map lookup does not hash it again
+		var x = 0x811C9DC5;
 		var i = 0;
 		while (i + 1 < n) {
-			d.set(i >> 1, b.get(i) | (b.get(i + 1) << 8));
+			final u = b.get(i) | (b.get(i + 1) << 8);
+			d.set(i >> 1, u);
+			x = (x ^ u) * 16777619;
 			i += 2;
 		}
-		if (i < n)
-			d.set(i >> 1, b.get(i));
+		if (i < n) {
+			final u = b.get(i);
+			d.set(i >> 1, u);
+			x = (x ^ u) * 16777619;
+		}
 		d.set(m, n & 1);
+		x = (x ^ (n & 1)) * 16777619;
+		hxmc.rt.Repr.storeHash(s, x == 0 ? 1 : x);
 		n = 0;
 		pool.push(this);
 		return s;
@@ -1676,12 +1708,19 @@ class Checker {
 	static inline final maxSerializationLevel:Int = 2;
 
 	static var nextCheckerID:Int = 0; // PORT: atomic.Uint32 → Int (single-threaded)
+	#if tshx_parallel
+	static final checkerIDs = new haxe.atomic.AtomicInt(0);
+	#end
 
 	public static function NewChecker(program:Program, tracer:Tracer):Pair<Checker, Any /* sync.Mutex */> {
 		program.BindSourceFiles();
 
 		final c = new Checker();
+		#if tshx_parallel
+		c.id = checkerIDs.add(1) + 1; // PORT: hxmc (-D tshx-parallel) — atomic.Uint32.Add
+		#else
 		c.id = ++nextCheckerID;
+		#end
 		c.tracer = tracer;
 		c.program = program;
 		c.compilerOptions = program.Options();
@@ -2468,7 +2507,11 @@ class Checker {
 
 	// PORT: perf — Go returns (CacheHashKey, bool); the bool (constrained) is left in
 	// getRelationKeyConstrained, read by the caller right after the call (no result object per check).
+	#if tshx_parallel
+	@:hxmc.threadLocal static var getRelationKeyConstrained:Bool; // PORT: hxmc (-D tshx-parallel) — per thread
+	#else
 	static var getRelationKeyConstrained:Bool = false;
+	#end
 
 	static function getRelationKey(source:Type, target:Type, intersectionState:IntersectionState, isIdentity:Bool, ignoreConstraints:Bool):CacheHashKey {
 		if (isIdentity && source.id > target.id) {

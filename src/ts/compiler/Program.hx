@@ -47,6 +47,9 @@ class LazyValue<T> {
 	public function new() {}
 
 	function getValue(compute:() -> T):T {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!this.once) {
 			this.once = true;
 			if (this.value == null) {
@@ -54,6 +57,9 @@ class LazyValue<T> {
 			}
 			this.initialized = true;
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return this.value;
 	}
 
@@ -539,7 +545,12 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 	}
 
 	public function BindSourceFiles():Void {
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the files are bound on threads, as in Go
+		final wg:WorkGroup = this.SingleThreaded() ? Core.NewWorkGroup(true) : new ParallelWorkGroup();
+		#else
 		final wg = Core.NewWorkGroup(this.SingleThreaded());
+		#end
 		for (file in this.files) {
 			if (!file.IsBound()) {
 				wg.Queue(function() {
@@ -625,6 +636,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 	// GetPackagesMap returns a lazily-cached map of package names to whether they bundle types.
 	// This is used by incremental diagnostic repopulation.
 	public function GetPackagesMap():StringMap<Bool> {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!this.packagesMapOnce) {
 			this.packagesMapOnce = true;
 			this.packagesMap = new StringMap();
@@ -639,6 +653,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 				}
 			}
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return this.packagesMap;
 	}
 
@@ -804,10 +821,16 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 
 	function getSourceFilesToEmit(targetSourceFile:SourceFile, forceDtsEmit:Bool):Array<SourceFile> {
 		if (targetSourceFile == null && !forceDtsEmit) {
+			#if tshx_parallel
+			go.Par.onceMutex.acquire();
+			#end
 			if (!this.sourceFilesToEmitOnce) {
 				this.sourceFilesToEmitOnce = true;
 				this.sourceFilesToEmit = Compiler.getSourceFilesToEmit(this, null, false);
 			}
+			#if tshx_parallel
+			go.Par.onceMutex.release();
+			#end
 			return this.sourceFilesToEmit;
 		}
 		return Compiler.getSourceFilesToEmit(this, targetSourceFile, forceDtsEmit);
@@ -1653,6 +1676,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 	}
 
 	public function CommonSourceDirectory():std.String {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!this.commonSourceDirectoryOnce) {
 			this.commonSourceDirectoryOnce = true;
 			final files = function():Array<std.String> {
@@ -1663,6 +1689,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 			this.commonSourceDirectory = Outputpaths.GetCommonSourceDirectory(this.Options(), files, this.GetCurrentDirectory(), this.UseCaseSensitiveFileNames(),
 				this.checkSourceFilesBelongToPath);
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return this.commonSourceDirectory;
 	}
 
@@ -1711,7 +1740,12 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 
 		final newLine = this.Options().NewLine.GetNewLineCharacter();
 		// PORT: sync.Pool of writers → a new writer per file (Go clears a pooled writer before use).
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the files are emitted on threads, as in Go
+		final wg:WorkGroup = this.SingleThreaded() ? Core.NewWorkGroup(true) : new ParallelWorkGroup();
+		#else
 		final wg = Core.NewWorkGroup(this.SingleThreaded());
+		#end
 		final emitters:Array<Emitter> = [];
 		final sourceFiles = this.getSourceFilesToEmit(options.TargetSourceFile, options.EmitOnly == EmitOnlyForcedDts);
 
@@ -1990,6 +2024,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 	}
 
 	public function HasTSFile():Bool {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		if (!this.hasTSFileOnce) {
 			this.hasTSFileOnce = true;
 			for (file in this.files) {
@@ -1999,6 +2036,9 @@ class Program implements ts.checker.Checker.Program implements ProgramLike imple
 				}
 			}
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return this.hasTSFile;
 	}
 

@@ -61,7 +61,16 @@ class Diagnostics {
 		return messages;
 	}
 
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — one per thread (go.Par.slot): an EReg keeps its last match
+	static final placeholderRegexps:Array<EReg> = [for (_ in 0...go.Par.SLOTS) ~/\{([0-9]+)\}/g];
+	static var placeholderRegexp(get, never):EReg;
+
+	static inline function get_placeholderRegexp()
+		return placeholderRegexps[go.Par.slot];
+	#else
 	static final placeholderRegexp = ~/\{([0-9]+)\}/g; // PORT: jvm — `{` escaped (Java regex rejects a bare `{`)
+	#end
 
 	public static function Format(text:String, args:Array<String>):String {
 		if (args == null || args.length == 0)

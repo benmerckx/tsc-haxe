@@ -9,13 +9,16 @@
 #   py   B-py.py            $PYTHON B-py.py (main() runs in a big-stack thread, see go.PyTarget)
 #   hxmc B-hxmc             native binary (hxmc, Linux x86-64; HXMC_HOME: an hxmc checkout with bin/hxmc built)
 #   hxmc-wasm B-hxmc.wasm   node --stack-size=7000 $HXMC_HOME/hxmc/bootstrap/wasi.mjs B-hxmc.wasm (hxmc, wasm32-wasi)
+#   hxmc-par B-hxmc-par     native binary as hxmc, with -D tshx-parallel (go.Par's threads: TSHX_THREADS, default 4)
+#   hxmc-wasmgc B-hxmc-gc.wasm  node --stack-size=7000 $HXMC_HOME/hxmc/bootstrap/wasmgc.mjs B-hxmc-gc.wasm (hxmc,
+#                           -D hxmc.wasm-gc: the engine's collector; go.OsGc)
 #
 # hx_build <target> <main> <base> [haxe args...]   builds (quiet); exit status of the build
 # hx_cmd <target> <main> <base>                    prints the command line that runs the build
 # hx_targets_check <list>                          exits with a message on an unknown target name
 . "$ROOT/tools/env.sh"
 
-HX_ALL_TARGETS="js cpp jvm cs py hxmc hxmc-wasm"
+HX_ALL_TARGETS="js cpp jvm cs py hxmc hxmc-wasm hxmc-par hxmc-wasmgc"
 
 hx_build() {
 	_t=$1 _m=$2 _b=$3
@@ -45,6 +48,18 @@ hx_build() {
 		HAXE_STD_PATH="$HXMC_HOME/haxe/upstream/std" "$HXMC_HOME/bin/hxmc/hxmc" "$_b-hxmc.wasm" -cp "$ROOT/src" \
 			--macro 'go.NilRange.apply()' go.GcInit -cp src -cp test -D analyzer-optimize -main "$_m" -D hxmc.target=wasm32-wasi \
 			-D hxmc.symbols "$@" -cp "$HXMC_HOME/bin/hxmc/std" --custom-target hxmc >/dev/null
+		;;
+	# hxmc-par: hxmc's build with the checkers, parsing, binding and emit on threads (-D tshx-parallel)
+	hxmc-par)
+		_pb=$_b # (hx_build sets _b)
+		hx_build hxmc "$_m" "$_pb-par.tmp" -D tshx-parallel "$@" && mv "$_pb-par.tmp-hxmc" "$_pb-hxmc-par"
+		;;
+	# hxmc-wasmgc: the wasm32-wasi build with -D hxmc.wasm-gc (no linear memory: go.Os is go.OsGc)
+	hxmc-wasmgc)
+		ulimit -s unlimited 2>/dev/null || :
+		HAXE_STD_PATH="$HXMC_HOME/haxe/upstream/std" "$HXMC_HOME/bin/hxmc/hxmc" "$_b-hxmc-gc.wasm" -cp "$ROOT/src" \
+			--macro 'go.NilRange.apply()' go.GcInit -cp src -cp test -D analyzer-optimize -main "$_m" -D hxmc.target=wasm32-wasi \
+			-D hxmc.wasm-gc -D hxmc.symbols "$@" -cp "$HXMC_HOME/bin/hxmc/std" --custom-target hxmc >/dev/null
 		;;
 	cs)
 		# Haxe writes the C# sources (hxcs: -D no-compilation); the project file and the launcher come
@@ -81,6 +96,8 @@ hx_cmd() {
 	cs) echo "$DOTNET $_b-cs/bin/${_m##*.}.dll" ;;
 	hxmc) echo "$_b-hxmc" ;;
 	hxmc-wasm) echo "$NODE --stack-size=7000 ${HX_NODE_OPTS:-} $HXMC_HOME/hxmc/bootstrap/wasi.mjs $_b-hxmc.wasm" ;;
+	hxmc-par) echo "$_b-hxmc-par" ;;
+	hxmc-wasmgc) echo "$NODE --stack-size=7000 ${HX_NODE_OPTS:-} $HXMC_HOME/hxmc/bootstrap/wasmgc.mjs $_b-hxmc-gc.wasm" ;;
 	*) echo "false unknown-target-$_t" ;;
 	esac
 }

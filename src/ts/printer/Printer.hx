@@ -6038,6 +6038,17 @@ class Printer {
 
 	// PORT: atomic.Uint32 → plain Int (single-threaded).
 	static var nextAutoGenerateId:Int = 0;
+	#if tshx_parallel
+	static final autoGenerateIds = new haxe.atomic.AtomicInt(0); // PORT: hxmc (-D tshx-parallel)
+	#end
+
+	public static inline function NextAutoGenerateId():Int {
+		#if tshx_parallel
+		return autoGenerateIds.add(1) + 1;
+		#else
+		return ++nextAutoGenerateId;
+		#end
+	}
 
 	// --- factory.go ---
 
@@ -7101,10 +7112,13 @@ class Printer {
 
 	static function skipTriviaOptions(stopAtComments:Bool):SkipTriviaOptions {
 		if (skipTriviaStopAtComments == null) {
-			skipTriviaStopAtComments = new SkipTriviaOptions();
-			skipTriviaStopAtComments.StopAtComments = true;
-			skipTriviaNoStop = new SkipTriviaOptions();
-			skipTriviaNoStop.StopAtComments = false;
+			// (both complete before the one tested is set: another thread may be here too)
+			final stop = new SkipTriviaOptions();
+			stop.StopAtComments = true;
+			final noStop = new SkipTriviaOptions();
+			noStop.StopAtComments = false;
+			skipTriviaNoStop = noStop;
+			skipTriviaStopAtComments = stop;
 		}
 		return stopAtComments ? skipTriviaStopAtComments : skipTriviaNoStop;
 	}

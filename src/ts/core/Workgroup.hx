@@ -56,6 +56,59 @@ class SingleThreadedWorkGroup implements WorkGroup {
 	}
 }
 
+#if tshx_parallel
+// PORT: hxmc (-D tshx-parallel) — Go's parallelWorkGroup: Queue runs fn on go.Par's threads,
+// RunAndWait waits for every function queued (also those queued while it waits) and rethrows the
+// first exception (Go's goroutine panics end the program). A thread that waits runs queued functions
+// meanwhile, so that work groups nested in work run by the pool cannot wait for each other.
+class ParallelWorkGroup implements WorkGroup {
+	final pending = new haxe.atomic.AtomicInt(0);
+	final finished = new sys.thread.Lock();
+	final mutex = new sys.thread.Mutex();
+	var error:Dynamic = null;
+	var failed = false;
+	var stack = "";
+	var done = false;
+
+	public function new() {}
+
+	public function Queue(fn:() -> Void):Void {
+		if (this.done) {
+			throw "Queue called after RunAndWait returned";
+		}
+		this.pending.add(1);
+		go.Par.submit(() -> {
+			try {
+				fn();
+			} catch (e:Dynamic) {
+				this.mutex.acquire();
+				if (!this.failed) {
+					this.failed = true;
+					this.error = e;
+					this.stack = haxe.CallStack.toString(haxe.CallStack.exceptionStack());
+				}
+				this.mutex.release();
+			}
+			if (this.pending.sub(1) == 1)
+				this.finished.release();
+		});
+	}
+
+	public function RunAndWait():Void {
+		while (this.pending.load() > 0) {
+			if (!go.Par.tryRun())
+				this.finished.wait(0.001);
+		}
+		this.done = true;
+		if (this.failed) {
+			// (where it was thrown: rethrown here, the stack of the worker is lost)
+			Sys.stderr().writeString("ParallelWorkGroup: " + Std.string(this.error) + this.stack + "\n");
+			throw this.error;
+		}
+	}
+}
+#end
+
 // ThrottleGroup is like errgroup.Group but with global concurrency limiting via a semaphore.
 // PORT: single-threaded: Go() queues the function, Wait() runs the queue like
 // singleThreadedWorkGroup (LIFO) and returns the first error, like errgroup. The semaphore

@@ -110,11 +110,17 @@ class Bundled {
 	// embeddedContents[name]; null when absent.
 	@:allow(ts.bundled)
 	static function embeddedContentsGet(name:String):Null<String> {
+		#if tshx_parallel
+		go.Par.onceMutex.acquire();
+		#end
 		var contents = embeddedCache.get(name);
 		if (contents == null && embeddedContentsExists(name)) {
 			contents = haxe.Resource.getString("bundled/" + name);
 			embeddedCache.set(name, contents);
 		}
+		#if tshx_parallel
+		go.Par.onceMutex.release();
+		#end
 		return contents;
 	}
 }

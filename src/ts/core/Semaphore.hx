@@ -31,6 +31,9 @@ class LimitedSemaphore implements Semaphore {
 	@:allow(ts.core)
 	function new(capacity:Int) {
 		this.capacity = capacity;
+		#if tshx_parallel
+		this.slots = new sys.thread.Semaphore(capacity);
+		#end
 	}
 
 	public function Acquire():() -> Void {
@@ -45,6 +48,17 @@ class LimitedSemaphore implements Semaphore {
 		return new ValueOk<() -> Void>(this.release, true);
 	}
 
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — the channel as a counting semaphore: a full one blocks, as in Go
+	final slots:sys.thread.Semaphore;
+
+	function send():Void
+		slots.acquire();
+
+	@:allow(ts.core)
+	function receive():Void
+		slots.release();
+	#else
 	// s.ch <- struct{}{}
 	function send():Void {
 		if (used >= capacity)
@@ -59,4 +73,5 @@ class LimitedSemaphore implements Semaphore {
 			throw "LimitedSemaphore: release without acquire (would block forever)";
 		used--;
 	}
+	#end
 }

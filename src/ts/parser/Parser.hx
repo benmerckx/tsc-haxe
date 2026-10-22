@@ -201,7 +201,16 @@ class Parser {
 	}
 
 	// PORT: sync.Pool → a plain free list (single-threaded).
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a free list per thread (go.Par.slot): the checkers parse JSDoc lazily
+	static final parserPools:Array<Array<Parser>> = [for (_ in 0...go.Par.SLOTS) []];
+	static var parserPool(get, never):Array<Parser>;
+
+	static inline function get_parserPool()
+		return parserPools[go.Par.slot];
+	#else
 	static final parserPool:Array<Parser> = [];
+	#end
 
 	static function getParser():Parser {
 		if (parserPool.length > 0) {

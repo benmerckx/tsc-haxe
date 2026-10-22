@@ -96,9 +96,19 @@ class ParseTask implements HasFileName {
 			}
 		}
 
+		#if tshx_parallel
+		loader.countMutex.acquire(); // PORT: hxmc (-D tshx-parallel) — atomic.Int32.Add
 		loader.totalFileCount += 1;
-		if (this.libFile != null) {
+		if (this.libFile != null)
 			loader.libFileCount += 1;
+		loader.countMutex.release();
+		#else
+		loader.totalFileCount += 1;
+		#end
+		if (this.libFile != null) {
+			#if !tshx_parallel
+			loader.libFileCount += 1;
+			#end
 			// Default lib files are all scripts; we can safely skip looking up their package.json
 			// to avoid adding spurious lookups to file watcher tracking.
 			final m = new SourceFileMetaData();
@@ -228,6 +238,9 @@ class ResolvedRef {
 class FilesParser {
 	var wg:WorkGroup = null;
 	var taskDataByPath:StringMap<ParseTaskData> = new StringMap(); // PORT: SyncMap[tspath.Path, *parseTaskData] → StringMap
+	#if tshx_parallel
+	final taskDataMutex = new sys.thread.Mutex();
+	#end
 	var maxDepth:Int = 0;
 
 	public function new() {}
@@ -244,6 +257,9 @@ class FilesParser {
 			final task = tasks[i];
 			task.path = loader.toPath(task.normalizedFilePath);
 			final candidate = Compiler.getParseTaskData(task);
+			#if tshx_parallel
+			this.taskDataMutex.acquire(); // PORT: hxmc (-D tshx-parallel) — SyncMap.LoadOrStore
+			#end
 			var data = this.taskDataByPath.get(task.path);
 			final loaded = data != null;
 			if (loaded) {
@@ -252,8 +268,11 @@ class FilesParser {
 				data = candidate;
 				this.taskDataByPath.set(task.path, data);
 			}
+			#if tshx_parallel
+			this.taskDataMutex.release();
+			#end
 
-			this.wg.Queue(function() {
+			final run = function() {
 				// PORT: data.mu dropped (single-threaded)
 				var startSubtasks = false;
 				if (loaded) {
@@ -301,6 +320,22 @@ class FilesParser {
 						this.start(loader, taskByFileName.subTasks, data.lowestDepth);
 					}
 				}
+			};
+			this.wg.Queue(function() {
+				#if tshx_parallel
+				data.mu.acquire(); // PORT: hxmc (-D tshx-parallel) — data.mu.Lock(); defer data.mu.Unlock()
+				#end
+				#if tshx_parallel
+				try {
+					run();
+				} catch (e:Dynamic) {
+					data.mu.release();
+					throw e;
+				}
+				data.mu.release();
+				#else
+				run();
+				#end
 			});
 		}
 	}
@@ -601,6 +636,9 @@ class ParseTaskData {
 	// map of tasks by file casing
 	var tasks:StringMap<ParseTask> = new StringMap();
 	// PORT: mu sync.Mutex dropped (single-threaded)
+	#if tshx_parallel
+	final mu = new sys.thread.Mutex(); // PORT: hxmc (-D tshx-parallel)
+	#end
 	var lowestDepth:Int = 0;
 	var startedSubTasks:Bool = false;
 	var packageId:PackageId = new PackageId();

@@ -1,6 +1,6 @@
 package go;
 
-#if (target.name == "hxmc" && hxmc.target == "wasm32-wasi")
+#if (target.name == "hxmc" && hxmc.target == "wasm32-wasi" && !hxmc.wasm_gc)
 import hxmc.I64;
 import hxmc.rt.wasm.Heap;
 import hxmc.rt.wasm.Wasi;

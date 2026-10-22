@@ -12,6 +12,9 @@ package ts.core;
 // largest share of map lookups). No store iterates over its keys.
 class LinkStore<K, V> {
 	final arena:Arena<V>;
+	#if tshx_parallel
+	static final insertMutex = new sys.thread.Mutex();
+	#end
 
 	public function new(factory:() -> V) {
 		this.arena = new Arena<V>(factory);
@@ -27,7 +30,15 @@ class LinkStore<K, V> {
 			e = e.next;
 		}
 		final value = arena.New();
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the key's list is shared by the stores of all checkers: the
+		// entry is complete before it is published, readers need no lock (entries never change)
+		insertMutex.acquire();
 		h.links = new LinkEntry(self, value, h.links);
+		insertMutex.release();
+		#else
+		h.links = new LinkEntry(self, value, h.links);
+		#end
 		return value;
 	}
 

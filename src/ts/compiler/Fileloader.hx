@@ -57,6 +57,12 @@ class FileLoader {
 	var libFileCount:Int = 0; // PORT: atomic.Int32 → Int
 
 	var factory:NodeFactory = new NodeFactory(); // PORT: factoryMu dropped (single-threaded)
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — factoryMu, the counters' atomics, the lib file SyncMaps
+	final factoryMutex = new sys.thread.Mutex();
+	final countMutex = new sys.thread.Mutex();
+	final libMutex = new sys.thread.Mutex();
+	#end
 
 	var projectReferenceFileMapper:ProjectReferenceFileMapper = null;
 	var dtsDirectories:Set<Path> = new Set<Path>();
@@ -557,6 +563,15 @@ class FileLoader {
 	}
 
 	function createSyntheticImport(text:std.String, file:SourceFile):Node {
+		#if tshx_parallel
+		factoryMutex.acquire();
+		final r = createSyntheticImportLocked(text, file);
+		factoryMutex.release();
+		return r;
+	}
+
+	function createSyntheticImportLocked(text:std.String, file:SourceFile):Node {
+		#end
 		final externalHelpersModuleReference = this.factory.NewStringLiteral(text, TokenFlagsNone);
 		final importDecl = this.factory.NewImportDeclaration(null, null, externalHelpersModuleReference, null);
 		externalHelpersModuleReference.Parent = importDecl;
@@ -565,6 +580,15 @@ class FileLoader {
 	}
 
 	function pathForLibFile(name:std.String):LibFile {
+		#if tshx_parallel
+		libMutex.acquire();
+		final r = pathForLibFileLocked(name);
+		libMutex.release();
+		return r;
+	}
+
+	function pathForLibFileLocked(name:std.String):LibFile {
+		#end
 		final cached = this.pathForLibFileCache.get(name);
 		if (cached != null) {
 			return cached;

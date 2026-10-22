@@ -1,6 +1,8 @@
 package go;
 
-#if (target.name == "hxmc" && hxmc.target == "wasm32-wasi")
+#if (target.name == "hxmc" && hxmc.wasm_gc)
+typedef OsHxmc = OsGc;
+#elseif (target.name == "hxmc" && hxmc.target == "wasm32-wasi")
 typedef OsHxmc = OsWasi;
 #elseif (target.name == "hxmc")
 import hxmc.unsafe.LibC;
@@ -105,7 +107,11 @@ class OsHxmc {
 		return e;
 	}
 
+	#if tshx_parallel
+	@:hxmc.threadLocal public static var realpathErrno:Int; // PORT: hxmc (-D tshx-parallel) — per thread
+	#else
 	public static var realpathErrno = 0;
+	#end
 
 	public static function realpath(path:String):Null<String> {
 		final p = cstr(path);

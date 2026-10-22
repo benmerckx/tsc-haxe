@@ -15,6 +15,9 @@ class ProjectReferenceFileMapper {
 
 	// Store all the realpath from dts in node_modules to source file from project reference needed during parsing so it can be used later
 	var realpathDtsToSource:StringMap<SourceOutputAndProjectReference> = new StringMap(); // PORT: SyncMap → StringMap
+	#if tshx_parallel
+	final realpathMutex = new sys.thread.Mutex(); // PORT: hxmc (-D tshx-parallel)
+	#end
 
 	public function new() {}
 
@@ -150,6 +153,15 @@ class ProjectReferenceFileMapper {
 	}
 
 	function getSourceToDtsIfSymlink(file:HasFileName):SourceOutputAndProjectReference {
+		#if tshx_parallel
+		realpathMutex.acquire();
+		final r = getSourceToDtsIfSymlinkLocked(file);
+		realpathMutex.release();
+		return r;
+	}
+
+	function getSourceToDtsIfSymlinkLocked(file:HasFileName):SourceOutputAndProjectReference {
+		#end
 		// If preserveSymlinks is true, module resolution wont jump the symlink
 		// but the resolved real path may be the .d.ts from project reference
 		// Note:: Currently we try the real path only if the

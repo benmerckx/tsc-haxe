@@ -1407,8 +1407,25 @@ class Modulespecifiers {
 
 	// PORT: map[regexPatternCacheKey]*regexp.Regexp → StringMap keyed by "<0|1>" + pattern (struct key
 	// encoded as a String). The RWMutex is dropped (single-threaded port).
+	#if tshx_parallel
+	// PORT: hxmc (-D tshx-parallel) — a cache per thread (go.Par.slot): an EReg keeps its last match
+	static final regexPatternCaches:Array<StringMap<Null<EReg>>> = [for (_ in 0...go.Par.SLOTS) new StringMap()];
+	static final regexPatternCacheSizes:Array<Int> = [for (_ in 0...go.Par.SLOTS) 0];
+	static var regexPatternCache(get, never):StringMap<Null<EReg>>;
+	static var regexPatternCacheSize(get, set):Int;
+
+	static inline function get_regexPatternCache()
+		return regexPatternCaches[go.Par.slot];
+
+	static inline function get_regexPatternCacheSize()
+		return regexPatternCacheSizes[go.Par.slot];
+
+	static inline function set_regexPatternCacheSize(v:Int)
+		return regexPatternCacheSizes[go.Par.slot] = v;
+	#else
 	static final regexPatternCache = new StringMap<Null<EReg>>();
 	static var regexPatternCacheSize = 0;
+	#end
 
 	static function comparePathsByRedirect(a:ModulePath, b:ModulePath, useCaseSensitiveFileNames:Bool):Int {
 		// Redirects sort first, matching Strada's compareBooleans(b.isRedirect, a.isRedirect).

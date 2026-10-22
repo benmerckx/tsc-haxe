@@ -41,7 +41,13 @@ class Compiler {
 
 	// PORT: (*emitHost, func()) → Pair
 	static function newEmitHost(ctx:Context, program:Program, file:SourceFile):Pair<EmitHost_, () -> Void> {
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — Go locks the checker in each EmitResolver call (checkerMu, dropped
+		// in this port); here the file holds its checker while it is emitted
+		final r = program.GetTypeCheckerForFileExclusive(ctx, file);
+		#else
 		final r = program.GetTypeCheckerForFile(ctx, file);
+		#end
 		final checker = r.a, done = r.b;
 		final host = new EmitHost_();
 		host.program = program;
@@ -248,7 +254,12 @@ class Compiler {
 		loader.defaultLibraryPath = Tspath.GetNormalizedAbsolutePath(opts.Host.DefaultLibraryPath(), opts.Host.GetCurrentDirectory());
 		loader.comparePathsOptions = new ComparePathsOptions(opts.Host.FS().UseCaseSensitiveFileNames(), opts.Host.GetCurrentDirectory());
 		loader.filesParser = new FilesParser();
+		#if tshx_parallel
+		// PORT: hxmc (-D tshx-parallel) — the files are loaded and parsed on threads, as in Go
+		loader.filesParser.wg = singleThreaded ? Core.NewWorkGroup(true) : new ParallelWorkGroup();
+		#else
 		loader.filesParser.wg = Core.NewWorkGroup(singleThreaded);
+		#end
 		loader.filesParser.maxDepth = maxNodeModuleJsDepth;
 		loader.rootTasks = [];
 		loader.supportedExtensions = supportedExtensions;

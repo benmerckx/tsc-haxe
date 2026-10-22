@@ -400,7 +400,7 @@ class Stringutil {
 
 	// PORT: utf16 — checks UTF-16 code units; a code unit >= 0x80 exactly when a UTF-8 byte >= 0x80.
 	public static function ContainsNonASCII(s:String):Bool {
-		#if (target.name == "hxmc")
+		#if (target.name == "hxmc" && !hxmc.wasm_gc)
 		// PORT: perf — four UTF-16 units at a time (a whole source file's text per call)
 		final n = s.length;
 		final p = hxmc.rt.Str.unitsAddr(s);
