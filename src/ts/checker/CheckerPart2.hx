@@ -797,10 +797,12 @@ class CheckerPart2 {
 			}
 		}
 		final baseStaticType = c.getBaseConstructorTypeOfClass(t);
-		for (member in node.Members()) {
+		final members = node.Members();
+		if (members == null) return;
+		for (member in members) {
 			if (!Ast.HasAmbientModifier(member)) {
 				if (Ast.IsConstructorDeclaration(member)) {
-					for (param in member.Parameters()) {
+					for (param in (member.Parameters() == null ? [] : member.Parameters())) {
 						if (Ast.IsParameterPropertyDeclaration(param, member)) {
 							c.checkMemberForOverrideModifier(node, staticType, baseStaticType, baseWithThis, t, typeWithThis, param);
 						}
@@ -1053,7 +1055,9 @@ class CheckerPart2 {
 			return;
 		}
 		final constructor = Ast.FindConstructorDeclaration(node);
-		for (member in node.Members()) {
+		final members = node.Members();
+		if (members == null) return;
+		for (member in members) {
 			if ((member.ModifierFlags() & ModifierFlagsAmbient) != 0) {
 				continue;
 			}
