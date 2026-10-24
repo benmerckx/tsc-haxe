@@ -3021,7 +3021,7 @@ class Ast {
 	static final propagateBindingElementSubtreeFactsFunc:(Node) -> SubtreeFacts = propagateBindingElementSubtreeFacts;
 
 	static function propagateNodeListSubtreeFacts(children:NodeList, propagate:(Node) -> SubtreeFacts):SubtreeFacts {
-		if (children == null) {
+		if (children == null || children.Nodes == null) {
 			return SubtreeFactsNone;
 		}
 		var facts = SubtreeFactsNone;
