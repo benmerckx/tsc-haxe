@@ -37,6 +37,7 @@ class TestMain {
 		ts.transformers.tstransforms.TypeeraserTest.run();
 		ts.transformers.tstransforms.ImportelisionTest.run();
 		ts.compiler.CompilerTest.run();
+		ts.compiler.EmptyClassTest.run();
 		ts.testrunner.TestrunnerTest.run();
 		ts.testutil.baseline.BaselineTest.run();
 		ts.execute.ExecuteTest.run();
