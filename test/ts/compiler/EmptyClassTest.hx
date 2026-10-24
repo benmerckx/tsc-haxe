@@ -11,6 +11,26 @@ import ts.core.Tristate.Tristate;
 
 class EmptyClassTest {
 	public static function run() {
+        T.run("TestEmptyJSSubtreeLists", () -> {
+            final options = new CompilerOptions();
+            options.AllowJs = Tristate.TSTrue;
+            options.CheckJs = Tristate.TSFalse;
+            final fs = Bundled.WrapFS(Vfstest.FromMap(["/input.js" => "f([], {}, function () {});"], true));
+            final config = new ParsedCommandLine();
+            config.ParsedConfig = new ParsedOptions();
+            config.ParsedConfig.FileNames = ["/input.js"];
+            config.ParsedConfig.CompilerOptions = options;
+            final po = new ProgramOptions();
+            po.Config = config;
+            po.SingleThreaded = Tristate.TSTrue;
+            po.Host = Compiler.NewCompilerHost("/", fs, Bundled.LibPath(), null, null);
+            final program = Compiler.NewProgram(po);
+            var file:ts.ast.Ast.SourceFile = null;
+            for (sf in program.GetSourceFiles()) if (sf.FileName() == "/input.js") file = sf;
+            final diagnostics = program.GetSyntacticDiagnostics(go.Context.Background(), file);
+            T.eq(0, diagnostics == null ? 0 : diagnostics.length);
+        });
+
 		for (source in ["class Empty {}", "class Empty { constructor() {} }"]) {
 			T.run("TestEmptyClassOverrideMembers/" + source, () -> {
 				final fs = Bundled.WrapFS(Vfstest.FromMap(["/input.ts" => source], true));
